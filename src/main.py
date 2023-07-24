@@ -1,7 +1,6 @@
 import os, yaml, json, traceback, argparse
 
 from dotenv import load_dotenv
-from python_on_whales import DockerClient
 
 from src.unraid_templates import Unraid
 
@@ -32,8 +31,20 @@ def create_app_docker_compose(
     if not os.path.exists(f"{folder}/{app_name}"):
         os.makedirs(f"{folder}/{app_name}", exist_ok=True)
 
-    with open(f"{folder}/{app_name}/docker-compose.yml", "w") as f:
+    docker_file_path = f"{folder}/{app_name}/docker-compose.yml"
+    if os.path.exists(docker_file_path):
+        print(f"docker-compose.yml file already exists at {docker_file_path}")
+        print("Moving current file to docker-compose.yml.old")
+
+        if os.path.exists(f"{docker_file_path}.old"):
+            os.remove(f"{docker_file_path}.old")
+
+        os.rename(docker_file_path, f"{docker_file_path}.old")
+
+    with open(docker_file_path, "w") as f:
         f.write(docker_compose_yaml)
+
+    print(f"Created {docker_file_path}")
 
 
 def create_app(folder: str, app_name: str, template: json):
@@ -46,6 +57,57 @@ def create_app(folder: str, app_name: str, template: json):
         variables=template["variables"],
         devices=template["devices"],
     )
+
+
+def create_app_args(templates: json, args):
+    if args.app_name and args.author:
+        found = False
+        for app in templates.keys():
+            if args.app_name.lower() == app.lower():
+                for author in templates[app]:
+                    if args.author.lower() == author.lower():
+                        found = True
+                        print(f"Creating {app} with author {author}")
+                        create_app(
+                            folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
+                            app_name=app,
+                            template=templates[app][author],
+                        )
+
+        if not found:
+            print(
+                f"App name {args.app_name} with author {args.author} not found in templates"
+            )
+
+    elif args.app_name and not args.author:
+        authors = []
+        for app in templates.keys():
+            if args.app_name.lower() == app.lower():
+                for author in templates[app]:
+                    authors.append(author)
+
+        if authors:
+            print(f"App name {args.app_name} has the following authors:")
+            for author in authors:
+                print(f"  {author}")
+            print("Specify an author with --author")
+        else:
+            print(f"App name {args.app_name} not found in templates")
+
+    elif not args.app_name and args.author:
+        apps = []
+        for app in templates:
+            for author in templates[app]:
+                if args.author.lower() == author.lower():
+                    apps.append(app)
+
+        if apps:
+            print(f"Author {args.author} has the following apps, specify one:")
+            for app in apps:
+                print(f"  {app}")
+            print("Specify an app name with --app_name")
+        else:
+            print(f"Author {args.author} not found in templates")
 
 
 def load_templates(folder: str):
@@ -68,7 +130,7 @@ def save_templates(folder: str, templates: dict):
         json.dump(templates, f, indent=4, sort_keys=True)
 
 
-def update():
+def update_templates():
     # Get Unraid templates
     unraid = Unraid(
         repo_folder=os.getenv("UNRAID_REPO_FOLDER", "./Unraid_Repositories"),
@@ -86,6 +148,31 @@ def update():
     return templates
 
 
+def update_containers(container_system: str, directory: str):
+    from python_on_whales import DockerClient
+
+    for folder in os.listdir(directory):
+        print(f"Checking {folder}")
+        compose_file = f"{directory}/{folder}/docker-compose.yml"
+        if os.path.exists(compose_file):
+            if container_system == "docker":
+                client = DockerClient(compose_files=[compose_file])
+            elif container_system == "podman":
+                client = DockerClient(
+                    client_call=["podman"], compose_files=[compose_file]
+                )
+            else:
+                raise Exception("Invalid container system")
+
+            print(f"Updating {folder}")
+            client.compose.pull()
+            client.compose.up(
+                detach=True,
+                remove_orphans=True,
+            )
+            print(f"Updated {folder}")
+
+
 def main():
     try:
         load_dotenv(override=True)
@@ -101,71 +188,41 @@ def main():
         parser.add_argument(
             "--app_name", help="App name to create docker-compose.yml file for"
         )
+        parser.add_argument("--list", action="store_true", help="List apps")
         parser.add_argument("--author", help="Author of the template")
+        parser.add_argument(
+            "--update_containers", action="store_true", help="Update containers"
+        )
+        parser.add_argument(
+            "--container_system",
+            help="Container system to use",
+            default="docker",
+            choices=["docker", "podman"],
+        )
         args = parser.parse_args()
 
         templates = load_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."))
+        updated = False
         if not templates:
-            templates = update()
+            updated = True
+            templates = update_templates()
 
         if args.update_templates:
-            templates = update()
+            # Do not update templates if they were just updated
+            if not updated:
+                templates = update_templates()
 
-        if args.app_name and args.author:
-            found = False
+        if args.update_containers:
+            update_containers(
+                args.container_system, os.getenv("DOCKER_COMPOSE_FOLDER", ".")
+            )
+
+        if args.app_name or args.author:
+            create_app_args(templates, args)
+        elif args.list:
+            print("List of apps:")
             for app in templates.keys():
-                if args.app_name.lower() == app.lower():
-                    for author in templates[app]:
-                        if args.author.lower() == author.lower():
-                            found = True
-                            print(f"Creating {app} with author {author}")
-                            create_app(
-                                folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
-                                app_name=app,
-                                template=templates[app][author],
-                            )
-
-            if not found:
-                print(
-                    f"App name {args.app_name} with author {args.author} not found in templates"
-                )
-
-        elif args.app_name and not args.author:
-            authors = []
-            for app in templates.keys():
-                if args.app_name.lower() == app.lower():
-                    for author in templates[app]:
-                        authors.append(author)
-
-            if authors:
-                print(f"App name {args.app_name} has the following authors:")
-                for author in authors:
-                    print(f"  {author}")
-                print("Specify an author with --author")
-            else:
-                print(f"App name {args.app_name} not found in templates")
-
-        elif not args.app_name and args.author:
-            apps = []
-            for app in templates:
-                for author in templates[app]:
-                    if args.author.lower() == author.lower():
-                        apps.append(app)
-
-            if apps:
-                print(f"Author {args.author} has the following apps, specify one:")
-                for app in apps:
-                    print(f"  {app}")
-                print("Specify an app name with --app_name")
-            else:
-                print(f"Author {args.author} not found in templates")
-
-        else:
-            print("List of avaliable apps:")
-            for app in templates:
                 print(f"  {app}")
-
-            print("Specify an app name with --app_name")
 
     except Exception as error:
         if isinstance(error, list):
