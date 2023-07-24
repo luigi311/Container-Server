@@ -1,5 +1,5 @@
-repos.csv
-templates.json
+**.json
+**.csv
 repos
 **.xml
 **.yml

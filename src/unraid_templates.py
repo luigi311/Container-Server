@@ -51,15 +51,25 @@ def parse_template(template: str, user: str, file_name: str):
         # with the value being a dictionary of the Config's attributes
         for config in root.findall("Config"):
             if config.attrib["Type"].lower() == "variable":
-                variables[name][user]["variables"][config.attrib["Target"].strip()] = config.attrib["Default"].strip()
+                variables[name][user]["variables"][
+                    config.attrib["Target"].strip()
+                ] = config.attrib["Default"].strip()
             elif config.attrib["Type"].lower() == "port":
-                variables[name][user]["ports"].append(f"{config.attrib['Default'].strip()}:{[config.attrib['Target']]}")
+                variables[name][user]["ports"].append(
+                    f"{config.attrib['Default'].strip()}:{config.attrib['Target'].strip()}"
+                )
             elif config.attrib["Type"].lower() == "path":
-                variables[name][user]["volumes"].append(f"{config.attrib['Default'].strip()}:{[config.attrib['Target']]}")
+                variables[name][user]["volumes"].append(
+                    f"{config.attrib['Default'].strip()}:{config.attrib['Target'].strip()}"
+                )
             elif config.attrib["Type"].lower() == "label":
-                variables[name][user]["labels"][config.attrib["Target"].strip()] = config.attrib["Default"].strip()
+                variables[name][user]["labels"][
+                    config.attrib["Target"].strip()
+                ] = config.attrib["Default"].strip()
             elif config.attrib["Type"].lower() == "device":
-                variables[name][user]["devices"].append(config.attrib["Default"].strip())
+                variables[name][user]["devices"].append(
+                    f"{config.attrib['Default'].strip()}:{config.attrib['Default'].strip()}"
+                )
 
         return variables
 
@@ -90,44 +100,53 @@ def get_xmls_from_dir(directory: str):
 class Unraid:
     def __init__(
         self,
-        repo_file: str = "repos.csv",
-        template_file: str = "templates.json",
+        repo_folder: str = "./Unraid_Repositories",
         repositoryList: str = None,
         repositories=None,
     ):
-        self.load_repos(repo_file)
+        self.repo_folder = repo_folder
+        self.repo_file = "unraid_repos.csv"
+        self.template_file = "unraid_templates.json"
+
+        self.load_repos()
         if not self.repos:
             self.update_repos(repositoryList, repositories)
-            self.save_repos(repo_file)
+            self.save_repos()
 
-        self.load_templates(template_file)
+        self.load_templates()
         print(f"Loaded {len(self.templates)} templates")
         if not self.templates:
             self.get_repo_templates()
-            self.save_templates(template_file)
+            self.save_templates()
 
-    def save_repos(self, repo_file: str):
+    def save_repos(self):
+        if not os.path.exists(self.repo_folder):
+            os.makedirs(self.repo_folder, exist_ok=True)
+
         # Save repos to repos.csv
-        with open(repo_file, "w") as f:
+        with open(f"{self.repo_folder}/{self.repo_file}", "w") as f:
             for repo in self.repos:
                 f.write(f"{repo}\n")
 
-    def load_repos(self, repo_file: str):
+    def load_repos(self):
         self.repos = []
-        if os.path.exists(repo_file):
-            with open(repo_file, "r") as f:
+        if os.path.exists(f"{self.repo_folder}/{self.repo_file}"):
+            with open(f"{self.repo_folder}/{self.repo_file}", "r") as f:
                 for line in f:
                     self.repos.append(line.strip())
 
-    def save_templates(self, template_file: str):
+    def save_templates(self):
+        if not os.path.exists(self.repo_folder):
+            os.makedirs(self.repo_folder, exist_ok=True)
+
         # Save templates to templates.json
-        with open(template_file, "w") as f:
+        with open(f"{self.repo_folder}/{self.template_file}", "w") as f:
             json.dump(self.templates, f, indent=4, sort_keys=True)
 
-    def load_templates(self, template_file: str):
-        if os.path.exists(template_file):
-            print(f"Loading templates from {template_file}")
-            with open(template_file, "r") as f:
+    def load_templates(self):
+        if os.path.exists(f"{self.repo_folder}/{self.template_file}"):
+            print(f"Loading templates from {self.repo_folder}/{self.template_file}")
+            with open(f"{self.repo_folder}/{self.template_file}", "r") as f:
                 self.templates = json.load(f)
         else:
             self.templates = {}
@@ -154,23 +173,24 @@ class Unraid:
         for repo in self.repos:
             # Cloning the repository if it doesn't exist
             try:
-                user, name = repo.split("/")[-2:]
-                # Check if repo exists and pull if it does, otherwise clone it
-                if os.path.exists(f"repos/{user}/{name}"):
+                user, name = repo.split("/")[3:5]
+                repo_path = f"{self.repo_folder}/{user}/{name}"
+
+                if os.path.exists(repo_path):
                     print(f"Updating {user}/{name}")
-                    #git.Repo(f"repos/{user}/{name}").remotes.origin.pull()
+                    # git.Repo(repo_path).remotes.origin.pull()
 
                 else:
                     # Create directory if it doesn't exist
-                    if not os.path.exists(f"repos/{user}"):
-                        os.makedirs(f"repos/{user}")
+                    os.makedirs(repo_path, exist_ok=True)
 
-                    #print(f"Cloning {user}/{name}")
-                    #git.Repo.clone_from(repo, f"repos/{user}/{name}")
+                    print(f"Cloning {user}/{name}")
+                    git.Repo.clone_from(repo, repo_path)
+
                 if user not in xmls:
                     xmls[user] = []
 
-                xmls[user].extend(get_xmls_from_dir(f"repos/{user}/{name}"))
+                xmls[user].extend(get_xmls_from_dir(repo_path))
             except:
                 print(f"Failed to clone {repo}")
                 continue
@@ -184,6 +204,6 @@ class Unraid:
                     template = parse_template(template_str, user, xml)
                     if template:
                         self.templates.update(template)
-                
+
                 except Exception as error:
                     continue
