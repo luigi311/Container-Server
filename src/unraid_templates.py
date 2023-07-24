@@ -102,69 +102,63 @@ class Unraid:
         self,
         repo_folder: str = "./Unraid_Repositories",
         repositoryList: str = None,
-        repositories=None,
+        repositories: list = None,
     ):
         self.repo_folder = repo_folder
-        self.repo_file = "unraid_repos.csv"
-        self.template_file = "unraid_templates.json"
+        self.repo_file = f"{repo_folder}/unraid_repos.csv"
+        self.template_file = f"{repo_folder}/unraid_templates.json"
+        self.repositoryList = repositoryList
+        self.repositories = repositories
 
         self.load_repos()
-        if not self.repos:
-            self.update_repos(repositoryList, repositories)
-
         self.load_templates()
-        if not self.templates:
-            self.update_templates()
 
     def save_repos(self):
         if not os.path.exists(self.repo_folder):
             os.makedirs(self.repo_folder, exist_ok=True)
 
         # Save repos to repos.csv
-        with open(f"{self.repo_folder}/{self.repo_file}", "w") as f:
+        with open(self.repo_file, "w") as f:
             for repo in self.repos:
                 f.write(f"{repo}\n")
 
     def load_repos(self):
         self.repos = []
-        if os.path.exists(f"{self.repo_folder}/{self.repo_file}"):
-            with open(f"{self.repo_folder}/{self.repo_file}", "r") as f:
+        if os.path.exists(self.repo_file):
+            with open(self.repo_file, "r") as f:
                 for line in f:
                     self.repos.append(line.strip())
 
-    def save_templates(self):
-        if not os.path.exists(self.repo_folder):
-            os.makedirs(self.repo_folder, exist_ok=True)
-
-        # Save templates to templates.json
-        with open(f"{self.repo_folder}/{self.template_file}", "w") as f:
-            json.dump(self.templates, f, indent=4, sort_keys=True)
-
-    def load_templates(self):
-        if os.path.exists(f"{self.repo_folder}/{self.template_file}"):
-            print(f"Loading templates from {self.repo_folder}/{self.template_file}")
-            with open(f"{self.repo_folder}/{self.template_file}", "r") as f:
-                self.templates = json.load(f)
-        else:
-            self.templates = {}
-
-    def update_repos(self, repositoryList: str = None, repositories=None):
-        print(
-            f"Updating repos from repositoryList: {repositoryList} and repositories: {repositories}"
-        )
+    def update_repos(self):
         self.repos = []
-        if repositoryList:
-            self.repos.extend(get_repositoryList(repositoryList))
+        if self.repositoryList:
+            self.repos.extend(get_repositoryList(self.repositoryList))
 
-        if repositories:
-            if type(repositories) == str:
-                repositories = repositories.split(",")
+        if self.repositories:
+            if type(self.repositories) == str:
+                repositories = self.repositories.split(",")
 
             if type(repositories) == list:
                 for repository in repositories:
                     self.repos.append(repository)
 
         self.save_repos()
+
+    def save_templates(self):
+        if not os.path.exists(self.repo_folder):
+            os.makedirs(self.repo_folder, exist_ok=True)
+
+        # Save templates to templates.json
+        with open(self.template_file, "w") as f:
+            json.dump(self.templates, f, indent=4, sort_keys=True)
+
+    def load_templates(self):
+        if os.path.exists(self.template_file):
+            print(f"Loading templates from {self.template_file}")
+            with open(self.template_file, "r") as f:
+                self.templates = json.load(f)
+        else:
+            self.templates = {}
 
     def update_templates(self):
         self.templates = {}
@@ -178,7 +172,6 @@ class Unraid:
                 if os.path.exists(repo_path):
                     print(f"Updating {user}/{name}")
                     git.Repo(repo_path).remotes.origin.pull()
-
                 else:
                     # Create directory if it doesn't exist
                     os.makedirs(repo_path, exist_ok=True)
