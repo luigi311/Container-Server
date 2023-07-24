@@ -134,7 +134,10 @@ def update_templates():
     # Get Unraid templates
     unraid = Unraid(
         repo_folder=os.getenv("UNRAID_REPO_FOLDER", "./Unraid_Repositories"),
-        repositoryList=os.getenv("UNRAID_REPOSITORY_LIST", None),
+        repositoryList=os.getenv(
+            "UNRAID_REPOSITORY_LIST",
+            "https://raw.githubusercontent.com/Squidly271/AppFeed/master/repositoryList.json",
+        ),
         repositories=os.getenv("UNRAID_REPOSITORIES", None),
     )
 
