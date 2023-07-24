@@ -1,4 +1,4 @@
-import os, yaml, json, traceback
+import os, yaml, json, traceback, argparse
 
 from dotenv import load_dotenv
 from python_on_whales import DockerClient
@@ -68,29 +68,104 @@ def save_templates(folder: str, templates: dict):
         json.dump(templates, f, indent=4, sort_keys=True)
 
 
+def update():
+    # Get Unraid templates
+    unraid = Unraid(
+        repo_folder=os.getenv("UNRAID_REPO_FOLDER", "./Unraid_Repositories"),
+        repositoryList=os.getenv("UNRAID_REPOSITORY_LIST", None),
+        repositories=os.getenv("UNRAID_REPOSITORIES", None),
+    )
+
+    unraid.update_repos()
+    unraid.update_templates()
+
+    templates = unraid.templates
+
+    save_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."), templates)
+
+    return templates
+
+
 def main():
     try:
         load_dotenv(override=True)
 
+        parser = argparse.ArgumentParser(
+            description="Create docker-compose.yml files from community templates"
+        )
+        parser.add_argument(
+            "--update_templates",
+            action="store_true",
+            help="Update templates from repositoryList and repositories",
+        )
+        parser.add_argument(
+            "--app_name", help="App name to create docker-compose.yml file for"
+        )
+        parser.add_argument("--author", help="Author of the template")
+        args = parser.parse_args()
+
         templates = load_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."))
         if not templates:
-            # Get Unraid templates
-            unraid = Unraid(
-                repo_folder=os.getenv("UNRAID_REPO_FOLDER", "./Unraid_Repositories"),
-                repositoryList=os.getenv("UNRAID_REPOSITORY_LIST", None),
-                repositories=os.getenv("UNRAID_REPOSITORIES", None),
-            )
+            templates = update()
 
-            templates = unraid.templates
+        if args.update_templates:
+            templates = update()
 
-            save_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."), templates)
+        if args.app_name and args.author:
+            found = False
+            for app in templates.keys():
+                if args.app_name.lower() == app.lower():
+                    for author in templates[app]:
+                        if args.author.lower() == author.lower():
+                            found = True
+                            print(f"Creating {app} with author {author}")
+                            create_app(
+                                folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
+                                app_name=app,
+                                template=templates[app][author],
+                            )
 
-        # Create docker-compose.yml file for JellyPlex-Watched
-        create_app(
-            folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
-            app_name="JellyPlex-Watched",
-            template=unraid.templates["jellyplex-watched"]["luigi311"],
-        )
+            if not found:
+                print(
+                    f"App name {args.app_name} with author {args.author} not found in templates"
+                )
+
+        elif args.app_name and not args.author:
+            authors = []
+            for app in templates.keys():
+                if args.app_name.lower() == app.lower():
+                    for author in templates[app]:
+                        authors.append(author)
+
+            if authors:
+                print(f"App name {args.app_name} has the following authors:")
+                for author in authors:
+                    print(f"  {author}")
+                print("Specify an author with --author")
+            else:
+                print(f"App name {args.app_name} not found in templates")
+
+        elif not args.app_name and args.author:
+            apps = []
+            for app in templates:
+                for author in templates[app]:
+                    if args.author.lower() == author.lower():
+                        apps.append(app)
+
+            if apps:
+                print(f"Author {args.author} has the following apps, specify one:")
+                for app in apps:
+                    print(f"  {app}")
+                print("Specify an app name with --app_name")
+            else:
+                print(f"Author {args.author} not found in templates")
+
+        else:
+            print("List of avaliable apps:")
+            for app in templates:
+                print(f"  {app}")
+
+            print("Specify an app name with --app_name")
 
     except Exception as error:
         if isinstance(error, list):

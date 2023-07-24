@@ -111,13 +111,10 @@ class Unraid:
         self.load_repos()
         if not self.repos:
             self.update_repos(repositoryList, repositories)
-            self.save_repos()
 
         self.load_templates()
-        print(f"Loaded {len(self.templates)} templates")
         if not self.templates:
-            self.get_repo_templates()
-            self.save_templates()
+            self.update_templates()
 
     def save_repos(self):
         if not os.path.exists(self.repo_folder):
@@ -167,7 +164,9 @@ class Unraid:
                 for repository in repositories:
                     self.repos.append(repository)
 
-    def get_repo_templates(self):
+        self.save_repos()
+
+    def update_templates(self):
         self.templates = {}
         xmls = {}
         for repo in self.repos:
@@ -178,7 +177,7 @@ class Unraid:
 
                 if os.path.exists(repo_path):
                     print(f"Updating {user}/{name}")
-                    # git.Repo(repo_path).remotes.origin.pull()
+                    git.Repo(repo_path).remotes.origin.pull()
 
                 else:
                     # Create directory if it doesn't exist
@@ -207,3 +206,5 @@ class Unraid:
 
                 except Exception as error:
                     continue
+
+        self.save_templates()
