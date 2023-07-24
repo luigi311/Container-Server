@@ -4,7 +4,7 @@ import git
 import xml.etree.ElementTree as ET
 
 exclude_xmls = ["ca_profile.xml"]
-exclude_dirs = [".git", ".github", "issues", "depricated"]
+exclude_dirs = [".git", ".github", "issues", "depricated", ".history", ".idea"]
 
 
 def get_repositoryList(repositoryList: str):
@@ -18,42 +18,54 @@ def get_repositoryList(repositoryList: str):
     return repositories
 
 
-def parse_template(template: str, user: str):
-    # Parse template and return variables
-    variables = {}
-    root = ET.fromstring(template)
+def parse_template(template: str, user: str, file_name: str):
+    try:
+        # Parse template and return variables
+        variables = {}
+        root = ET.fromstring(template)
 
-    # Get template name
-    name = root.findtext("Name")
-    variables[name] = {}
-    variables[name][user] = {}
+        # Get template name
+        name = root.findtext("Name")
+        variables[name] = {}
+        variables[name][user] = {}
 
-    # Get template repository
-    variables[name][user]["repository"] = root.findtext("Repository")
+        # Get template repository
+        variables[name][user]["repository"] = root.findtext("Repository")
 
-    if not variables[name][user]["repository"]:
-        print(f"Failed to get repository for {name}")
+        if not variables[name][user]["repository"]:
+            return
+
+        # Get template description
+        variables[name][user]["description"] = root.findtext("Overview")
+
+        # Get template network type
+        variables[name][user]["networkType"] = root.findtext("Network")
+
+        variables[name][user]["variables"] = {}
+        variables[name][user]["ports"] = []
+        variables[name][user]["volumes"] = []
+        variables[name][user]["labels"] = {}
+        variables[name][user]["devices"] = []
+
+        # Iterate though all the Config tags and create a dictionary of the Configs and their values using the Config's Name tag as the key
+        # with the value being a dictionary of the Config's attributes
+        for config in root.findall("Config"):
+            if config.attrib["Type"].lower() == "variable":
+                variables[name][user]["variables"][config.attrib["Target"].strip()] = config.attrib["Default"].strip()
+            elif config.attrib["Type"].lower() == "port":
+                variables[name][user]["ports"].append(f"{config.attrib['Default'].strip()}:{[config.attrib['Target']]}")
+            elif config.attrib["Type"].lower() == "path":
+                variables[name][user]["volumes"].append(f"{config.attrib['Default'].strip()}:{[config.attrib['Target']]}")
+            elif config.attrib["Type"].lower() == "label":
+                variables[name][user]["labels"][config.attrib["Target"].strip()] = config.attrib["Default"].strip()
+            elif config.attrib["Type"].lower() == "device":
+                variables[name][user]["devices"].append(config.attrib["Default"].strip())
+
+        return variables
+
+    except Exception as error:
+        print(f"Failed to parse template {file_name}: {error}")
         return
-
-    # Get template description
-    variables[name][user]["description"] = root.findtext("Overview")
-
-    # Get template network type
-    variables[name][user]["networkType"] = root.findtext("Network")
-
-    # Get Configs
-    variables[name][user]["configs"] = {}
-
-    # Iterate though all the Config tags and create a dictionary of the Configs and their values using the Config's Name tag as the key
-    # with the value being a dictionary of the Config's attributes
-    for config in root.findall("Config"):
-        variables[name][user]["configs"][config.attrib["Name"]] = {}
-        for key in config.attrib:
-            if key in ["Name", "Display", "Mask"]:
-                continue
-            variables[name][user]["configs"][config.attrib["Name"]][key] = config.attrib[key]
-
-    return variables
 
 
 def get_xmls_from_dir(directory: str):
@@ -64,7 +76,6 @@ def get_xmls_from_dir(directory: str):
         if os.path.isdir(f"{directory}/{file}"):
             # if directory contains anything in exclude_dirs ignoring case, skip it
             if any(exclude_dir.lower() in file.lower() for exclude_dir in exclude_dirs):
-                print(f"Skipping {directory}/{file}")
                 continue
             xmls.extend(get_xmls_from_dir(f"{directory}/{file}"))
         elif file.endswith(".xml"):
@@ -90,8 +101,9 @@ class Unraid:
             self.save_repos(repo_file)
 
         self.load_templates(template_file)
+        print(f"Loaded {len(self.templates)} templates")
         if not self.templates:
-            self.get_templates()
+            self.get_repo_templates()
             self.save_templates(template_file)
 
     def save_repos(self, repo_file: str):
@@ -114,6 +126,7 @@ class Unraid:
 
     def load_templates(self, template_file: str):
         if os.path.exists(template_file):
+            print(f"Loading templates from {template_file}")
             with open(template_file, "r") as f:
                 self.templates = json.load(f)
         else:
@@ -135,7 +148,7 @@ class Unraid:
                 for repository in repositories:
                     self.repos.append(repository)
 
-    def get_templates(self):
+    def get_repo_templates(self):
         self.templates = {}
         xmls = {}
         for repo in self.repos:
@@ -145,14 +158,15 @@ class Unraid:
                 # Check if repo exists and pull if it does, otherwise clone it
                 if os.path.exists(f"repos/{user}/{name}"):
                     print(f"Updating {user}/{name}")
-                    git.Repo(f"repos/{user}/{name}").remotes.origin.pull()
+                    #git.Repo(f"repos/{user}/{name}").remotes.origin.pull()
+
                 else:
                     # Create directory if it doesn't exist
                     if not os.path.exists(f"repos/{user}"):
                         os.makedirs(f"repos/{user}")
 
-                    print(f"Cloning {user}/{name}")
-                    git.Repo.clone_from(repo, f"repos/{user}/{name}")
+                    #print(f"Cloning {user}/{name}")
+                    #git.Repo.clone_from(repo, f"repos/{user}/{name}")
                 if user not in xmls:
                     xmls[user] = []
 
@@ -163,9 +177,13 @@ class Unraid:
 
         for user in xmls:
             for xml in xmls[user]:
-                with open(xml, "r") as f:
-                    template_str = f.read()
+                try:
+                    with open(xml, "r") as f:
+                        template_str = f.read()
 
-                template = parse_template(template_str, user)
-                if template:
-                    self.templates.update(template)
+                    template = parse_template(template_str, user, xml)
+                    if template:
+                        self.templates.update(template)
+                
+                except Exception as error:
+                    continue

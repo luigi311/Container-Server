@@ -1,7 +1,9 @@
 repos.csv
 templates.json
 repos
-*.xml
+**.xml
+**.yml
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
