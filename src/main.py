@@ -156,25 +156,19 @@ def update_containers(container_system: str, directory: str):
 
     for folder in os.listdir(directory):
         if os.path.isdir(f"{directory}/{folder}"):
-            if folder not in ["Unraid_Repositories", ".git", ".github", "src"]:
+            if folder not in ["Unraid_Repositories", ".git", ".github", "src", ".venv"]:
                 compose_file = f"{directory}/{folder}/docker-compose.yml"
+                print(f"Updating {folder}")
                 if os.path.exists(compose_file):
                     if container_system == "docker":
                         client = DockerClient(compose_files=[compose_file])
-                    elif container_system == "podman":
-                        client = DockerClient(
-                            client_call=["podman"], compose_files=[compose_file]
+                        client.compose.pull()
+                        client.compose.up(
+                            detach=True,
+                            remove_orphans=True,
                         )
                     else:
                         raise Exception("Invalid container system")
-
-                    print(f"Updating {folder}")
-                    client.compose.pull()
-                    client.compose.up(
-                        detach=True,
-                        remove_orphans=True,
-                    )
-                    print(f"Updated {folder}")
 
 
 
@@ -202,7 +196,7 @@ def main():
             "--container_system",
             help="Container system to use",
             default="docker",
-            choices=["docker", "podman"],
+            choices=["docker"],
         )
         args = parser.parse_args()
 
