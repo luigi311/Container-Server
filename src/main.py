@@ -155,25 +155,27 @@ def update_containers(container_system: str, directory: str):
     from python_on_whales import DockerClient
 
     for folder in os.listdir(directory):
-        print(f"Checking {folder}")
-        compose_file = f"{directory}/{folder}/docker-compose.yml"
-        if os.path.exists(compose_file):
-            if container_system == "docker":
-                client = DockerClient(compose_files=[compose_file])
-            elif container_system == "podman":
-                client = DockerClient(
-                    client_call=["podman"], compose_files=[compose_file]
-                )
-            else:
-                raise Exception("Invalid container system")
+        if os.path.isdir(f"{directory}/{folder}"):
+            if folder not in ["Unraid_Repositories", ".git", ".github", "src"]:
+                compose_file = f"{directory}/{folder}/docker-compose.yml"
+                if os.path.exists(compose_file):
+                    if container_system == "docker":
+                        client = DockerClient(compose_files=[compose_file])
+                    elif container_system == "podman":
+                        client = DockerClient(
+                            client_call=["podman"], compose_files=[compose_file]
+                        )
+                    else:
+                        raise Exception("Invalid container system")
 
-            print(f"Updating {folder}")
-            client.compose.pull()
-            client.compose.up(
-                detach=True,
-                remove_orphans=True,
-            )
-            print(f"Updated {folder}")
+                    print(f"Updating {folder}")
+                    client.compose.pull()
+                    client.compose.up(
+                        detach=True,
+                        remove_orphans=True,
+                    )
+                    print(f"Updated {folder}")
+
 
 
 def main():
