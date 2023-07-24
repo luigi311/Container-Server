@@ -18,7 +18,7 @@ def get_repositoryList(repositoryList: str):
     return repositories
 
 
-def parse_template(template: str):
+def parse_template(template: str, user: str):
     # Parse template and return variables
     variables = {}
     root = ET.fromstring(template)
@@ -26,31 +26,32 @@ def parse_template(template: str):
     # Get template name
     name = root.findtext("Name")
     variables[name] = {}
+    variables[name][user] = {}
 
     # Get template repository
-    variables[name]["repository"] = root.findtext("Repository")
+    variables[name][user]["repository"] = root.findtext("Repository")
 
-    if not variables[name]["repository"]:
+    if not variables[name][user]["repository"]:
         print(f"Failed to get repository for {name}")
         return
 
     # Get template description
-    variables[name]["description"] = root.findtext("Overview")
+    variables[name][user]["description"] = root.findtext("Overview")
 
     # Get template network type
-    variables[name]["networkType"] = root.findtext("Network")
+    variables[name][user]["networkType"] = root.findtext("Network")
 
     # Get Configs
-    variables[name]["configs"] = {}
+    variables[name][user]["configs"] = {}
 
     # Iterate though all the Config tags and create a dictionary of the Configs and their values using the Config's Name tag as the key
     # with the value being a dictionary of the Config's attributes
     for config in root.findall("Config"):
-        variables[name]["configs"][config.attrib["Name"]] = {}
+        variables[name][user]["configs"][config.attrib["Name"]] = {}
         for key in config.attrib:
             if key in ["Name", "Display", "Mask"]:
                 continue
-            variables[name]["configs"][config.attrib["Name"]][key] = config.attrib[key]
+            variables[name][user]["configs"][config.attrib["Name"]][key] = config.attrib[key]
 
     return variables
 
@@ -161,13 +162,10 @@ class Unraid:
                 continue
 
         for user in xmls:
-            if user not in self.templates:
-                self.templates[user] = {}
-
             for xml in xmls[user]:
                 with open(xml, "r") as f:
                     template_str = f.read()
 
-                template = parse_template(template_str)
+                template = parse_template(template_str, user)
                 if template:
-                    self.templates[user].update(template)
+                    self.templates.update(template)
