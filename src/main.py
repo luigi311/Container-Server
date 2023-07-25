@@ -1,9 +1,9 @@
 import os, yaml, json, traceback, argparse
 
 from dotenv import load_dotenv
+from difflib import get_close_matches
 
 from src.unraid_templates import Unraid
-
 
 def create_app_docker_compose(folder: str, app_name: str, template: json):
     docker_compose_config = {
@@ -41,11 +41,15 @@ def create_app_docker_compose(folder: str, app_name: str, template: json):
 
 
 def create_app_args(templates: json, args):
+    app_authors = []
+    apps, authors = generate_apps_authors(templates)
+
     if args.app and args.author:
         found = False
         for app in templates.keys():
             if args.app.lower() == app.lower():
                 for author in templates[app]:
+                    app_authors.append(author)
                     if args.author.lower() == author.lower():
                         found = True
                         print(f"Creating {app} with author {author}")
@@ -56,39 +60,54 @@ def create_app_args(templates: json, args):
                         )
 
         if not found:
-            print(
-                f"App name {args.app} with author {args.author} not found in templates"
-            )
+            if app_authors:
+                print(f"Author {args.author} not found for app {args.app}")
+                print(f"Did you mean one of the following authors?")
+                close_matches = get_close_matches(args.author, app_authors, cutoff=0.5)
+                if close_matches:
+                    for match in close_matches:
+                        print(f"  {match}")
+                else:
+                    for author in app_authors:
+                        print(f"  {author}")
+            else:
+                print(f"App name {args.app} not found in templates")
+                print(f"Did you mean one of the following apps?")
+                print(get_close_matches(args.app, apps, cutoff=0.5))
 
     elif args.app and not args.author:
-        authors = []
         for app in templates.keys():
             if args.app.lower() == app.lower():
                 for author in templates[app]:
-                    authors.append(author)
+                    app_authors.append(author)
 
-        if authors:
+        if app_authors:
             print(f"App name {args.app} has the following authors:")
-            for author in authors:
+            for author in app_authors:
                 print(f"  {author}")
             print("Specify an author with --author")
         else:
             print(f"App name {args.app} not found in templates")
+            print(f"Did you mean one of the following apps?")
+            print(get_close_matches(args.app, apps, cutoff=0.5))
 
     elif not args.app and args.author:
-        apps = []
+        author_apps = []
+
         for app in templates:
             for author in templates[app]:
                 if args.author.lower() == author.lower():
-                    apps.append(app)
+                    author_apps.append(app)
 
-        if apps:
-            print(f"Author {args.author} has the following apps, specify one:")
-            for app in apps:
+        if author_apps:
+            print(f"Author {args.author} has the following apps:")
+            for app in author_apps:
                 print(f"  {app}")
             print("Specify an app name with --app")
         else:
             print(f"Author {args.author} not found in templates")
+            print(f"Did you mean one of the following authors?")
+            print(get_close_matches(args.author, authors, cutoff=0.5))
 
 
 def load_templates(folder: str):
@@ -130,6 +149,22 @@ def update_templates():
     save_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."), templates)
 
     return templates
+
+
+def generate_apps_authors(templates: json):
+    apps = []
+    authors = []
+
+    for app in templates.keys():
+        apps.append(app)
+        for author in templates[app].keys():
+            authors.append(author)
+
+    # Remove duplicates
+    apps = list(dict.fromkeys(apps))
+    authors = list(dict.fromkeys(authors))
+
+    return apps, authors
 
 
 def update_containers(container_system: str, directory: str):
