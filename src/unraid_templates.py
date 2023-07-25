@@ -30,16 +30,16 @@ def parse_template(template: str, user: str, file_name: str):
         variables[name][user] = {}
 
         # Get template repository
-        variables[name][user]["repository"] = root.findtext("Repository")
+        variables[name][user]["image"] = root.findtext("Repository")
 
-        if not variables[name][user]["repository"]:
+        if not variables[name][user]["image"]:
             return
 
         # Get template description
         variables[name][user]["description"] = root.findtext("Overview")
 
         # Get template network type
-        variables[name][user]["networkType"] = root.findtext("Network")
+        variables[name][user]["network_mode"] = root.findtext("Network")
 
         variables[name][user]["variables"] = {}
         variables[name][user]["ports"] = []

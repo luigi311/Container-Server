@@ -5,24 +5,17 @@ from dotenv import load_dotenv
 from src.unraid_templates import Unraid
 
 
-def create_app_docker_compose(
-    folder: str,
-    app_name: str,
-    image: str,
-    ports: list,
-    volumes: list,
-    variables: dict,
-    devices: list,
-):
+def create_app_docker_compose(folder: str, app_name: str, template: json):
     docker_compose_config = {
         "version": "3",
         "services": {
             app_name: {
-                "image": image,
-                "ports": ports,
-                "volumes": volumes,
-                "environment": variables,
-                "devices": devices,
+                "image": template["image"],
+                "network_mode": template["network_mode"],
+                "ports": template["ports"],
+                "volumes": template["volumes"],
+                "environment": template["variables"],
+                "devices": template["devices"],
             }
         },
     }
@@ -47,28 +40,16 @@ def create_app_docker_compose(
     print(f"Created {docker_file_path}")
 
 
-def create_app(folder: str, app_name: str, template: json):
-    create_app_docker_compose(
-        folder=folder,
-        app_name=app_name,
-        image=template["repository"],
-        ports=template["ports"],
-        volumes=template["volumes"],
-        variables=template["variables"],
-        devices=template["devices"],
-    )
-
-
 def create_app_args(templates: json, args):
-    if args.app_name and args.author:
+    if args.app and args.author:
         found = False
         for app in templates.keys():
-            if args.app_name.lower() == app.lower():
+            if args.app.lower() == app.lower():
                 for author in templates[app]:
                     if args.author.lower() == author.lower():
                         found = True
                         print(f"Creating {app} with author {author}")
-                        create_app(
+                        create_app_docker_compose(
                             folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
                             app_name=app,
                             template=templates[app][author],
@@ -76,25 +57,25 @@ def create_app_args(templates: json, args):
 
         if not found:
             print(
-                f"App name {args.app_name} with author {args.author} not found in templates"
+                f"App name {args.app} with author {args.author} not found in templates"
             )
 
-    elif args.app_name and not args.author:
+    elif args.app and not args.author:
         authors = []
         for app in templates.keys():
-            if args.app_name.lower() == app.lower():
+            if args.app.lower() == app.lower():
                 for author in templates[app]:
                     authors.append(author)
 
         if authors:
-            print(f"App name {args.app_name} has the following authors:")
+            print(f"App name {args.app} has the following authors:")
             for author in authors:
                 print(f"  {author}")
             print("Specify an author with --author")
         else:
-            print(f"App name {args.app_name} not found in templates")
+            print(f"App name {args.app} not found in templates")
 
-    elif not args.app_name and args.author:
+    elif not args.app and args.author:
         apps = []
         for app in templates:
             for author in templates[app]:
@@ -105,7 +86,7 @@ def create_app_args(templates: json, args):
             print(f"Author {args.author} has the following apps, specify one:")
             for app in apps:
                 print(f"  {app}")
-            print("Specify an app name with --app_name")
+            print("Specify an app name with --app")
         else:
             print(f"Author {args.author} not found in templates")
 
@@ -171,34 +152,37 @@ def update_containers(container_system: str, directory: str):
                         raise Exception("Invalid container system")
 
 
+def arg_parser():
+    parser = argparse.ArgumentParser(
+        description="Create docker-compose.yml files from community templates"
+    )
+    parser.add_argument(
+        "--update_templates",
+        action="store_true",
+        help="Update templates from repositoryList and repositories",
+    )
+    parser.add_argument("--app", help="App name to create docker-compose.yml file for")
+    parser.add_argument("--list", action="store_true", help="List apps")
+    parser.add_argument("--author", help="Author of the template")
+    parser.add_argument(
+        "--update_containers", action="store_true", help="Update containers"
+    )
+    parser.add_argument(
+        "--container_system",
+        help="Container system to use",
+        default="docker",
+        choices=["docker"],
+    )
+    args = parser.parse_args()
+
+    return args
+
 
 def main():
     try:
         load_dotenv(override=True)
 
-        parser = argparse.ArgumentParser(
-            description="Create docker-compose.yml files from community templates"
-        )
-        parser.add_argument(
-            "--update_templates",
-            action="store_true",
-            help="Update templates from repositoryList and repositories",
-        )
-        parser.add_argument(
-            "--app_name", help="App name to create docker-compose.yml file for"
-        )
-        parser.add_argument("--list", action="store_true", help="List apps")
-        parser.add_argument("--author", help="Author of the template")
-        parser.add_argument(
-            "--update_containers", action="store_true", help="Update containers"
-        )
-        parser.add_argument(
-            "--container_system",
-            help="Container system to use",
-            default="docker",
-            choices=["docker"],
-        )
-        args = parser.parse_args()
+        args = arg_parser()
 
         templates = load_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."))
         updated = False
@@ -216,7 +200,7 @@ def main():
                 args.container_system, os.getenv("DOCKER_COMPOSE_FOLDER", ".")
             )
 
-        if args.app_name or args.author:
+        if args.app or args.author:
             create_app_args(templates, args)
         elif args.list:
             print("List of apps:")
