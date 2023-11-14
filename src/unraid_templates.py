@@ -41,35 +41,47 @@ def parse_template(template: str, user: str, file_name: str):
         # Get template network type
         variables[name][user]["network_mode"] = root.findtext("Network")
 
-        variables[name][user]["variables"] = {}
-        variables[name][user]["ports"] = []
-        variables[name][user]["volumes"] = []
+        variables[name][user]["ports"] = {}
+        variables[name][user]["volumes"] = {}
+        variables[name][user]["environment"] = {}
         variables[name][user]["labels"] = {}
-        variables[name][user]["devices"] = []
+        variables[name][user]["devices"] = {}
 
         # Iterate though all the Config tags and create a dictionary of the Configs and their values using the Config's Name tag as the key
         # with the value being a dictionary of the Config's attributes
         for config in root.findall("Config"):
-            if config.attrib["Type"].lower() == "variable":
-                variables[name][user]["variables"][
-                    config.attrib["Target"].strip()
-                ] = config.attrib["Default"].strip()
-            elif config.attrib["Type"].lower() == "port":
-                variables[name][user]["ports"].append(
-                    f"{config.attrib['Default'].strip()}:{config.attrib['Target'].strip()}"
-                )
-            elif config.attrib["Type"].lower() == "path":
-                variables[name][user]["volumes"].append(
-                    f"{config.attrib['Default'].strip()}:{config.attrib['Target'].strip()}"
-                )
-            elif config.attrib["Type"].lower() == "label":
-                variables[name][user]["labels"][
-                    config.attrib["Target"].strip()
-                ] = config.attrib["Default"].strip()
-            elif config.attrib["Type"].lower() == "device":
-                variables[name][user]["devices"].append(
-                    f"{config.attrib['Default'].strip()}:{config.attrib['Default'].strip()}"
-                )
+            attrib_type = config.attrib["Type"].lower()
+            
+            if attrib_type not in ["variable", "port", "label", "path", "device"]:
+                print(f"Unknown attribute type {attrib_type} in {file_name}")
+                continue
+
+            if "Target" not in config.attrib:
+                print(f"Missing target attribute in {config.keys()}")
+                continue
+
+            if attrib_type == "port":
+                attrib_type = "ports"
+            elif attrib_type == "variable":
+                attrib_type = "environment"
+            elif attrib_type == "path":
+                attrib_type = "volumes"
+            elif attrib_type == "device":
+                attrib_type = "devices"
+            elif attrib_type == "label":
+                attrib_type = "labels"
+
+            target_attrib = config.attrib["Target"].strip()
+            variables[name][user][attrib_type][target_attrib] = {}
+            if config.attrib.get("Default"):
+                variables[name][user][attrib_type][target_attrib]["Default"] = config.attrib["Default"].strip()
+            else:
+                variables[name][user][attrib_type][target_attrib]["Default"] = ''
+            
+            if config.attrib.get("Description"):
+                variables[name][user][attrib_type][target_attrib]["Description"] = config.attrib["Description"].strip()
+            else:
+                variables[name][user][attrib_type][target_attrib]["Description"] = ''
 
         return variables
 
