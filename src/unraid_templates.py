@@ -166,6 +166,9 @@ class Unraid:
         for repo in self.repos:
             # Cloning the repository if it doesn't exist
             try:
+                # Get repo up to name only removing everything passed the 5th /
+                split_repo = repo.split("/")[0:5]
+                clean_repo = "/".join(split_repo)
                 user, name = repo.split("/")[3:5]
                 repo_path = f"{self.repo_folder}/{user}/{name}"
 
@@ -177,7 +180,7 @@ class Unraid:
                     os.makedirs(repo_path, exist_ok=True)
 
                     print(f"Cloning {user}/{name}")
-                    git.Repo.clone_from(repo, repo_path)
+                    git.Repo.clone_from(clean_repo, repo_path)
 
                 if user not in xmls:
                     xmls[user] = []
