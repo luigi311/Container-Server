@@ -3,16 +3,20 @@ import os, re, json, traceback, argparse
 from dotenv import load_dotenv
 from difflib import get_close_matches
 
-from src.utils import template_json_to_list, template_json_to_dict
-
 from src.unraid_templates import Unraid
 
 
 def generate_docker_yaml(app_name: str, template: json):
     # Cleanup app_name and remove unsupported characters
     app_name = re.sub(r"[^a-zA-Z0-9_-]", "", app_name).lower()
+    description = template['description'].replace("\n","\n# ").replace("\r","")
+    # Remove new lines of just # from description
+    description = re.sub(r"^#(\s+)?$", "", description, flags=re.MULTILINE)
+    # Remove empty lines from description
+    description = re.sub(r"^\s*$\n", "", description, flags=re.MULTILINE)
+    docker_compose_yaml = f"#{description}\n\n"
 
-    docker_compose_yaml = f"""version: '3'
+    docker_compose_yaml += f"""version: '3'
 services:
   {app_name}:
     image: {template['image']}
@@ -31,7 +35,7 @@ services:
         for port in template["ports"]:
             target = template["ports"][port]["Target"]
             default = template["ports"][port]["Default"]
-            description = template["ports"][port]["Description"]
+            description = template["ports"][port]["Description"].replace("\n", "\n      # ").replace("\r", "")
             docker_compose_yaml += (
                 f"\n      # {port} {description}\n      - {default}:{target}"
             )
@@ -44,7 +48,7 @@ services:
         for variable in template["environment"]:
             target = template["environment"][variable]["Target"]
             default = template["environment"][variable]["Default"]
-            description = template["environment"][variable]["Description"]
+            description = template["environment"][variable]["Description"].replace("\n", "\n      # ").replace("\r", "")
             docker_compose_yaml += (
                 f"\n      # {variable} {description}\n      - {target}={default}"
             )
@@ -57,7 +61,7 @@ services:
         for volume in template["volumes"]:
             target = template["volumes"][volume]["Target"]
             default = template["volumes"][volume]["Default"]
-            description = template["volumes"][volume]["Description"]
+            description = template["volumes"][volume]["Description"].replace("\n", "\n      # ").replace("\r", "")
             docker_compose_yaml += (
                 f"\n      # {volume} {description}\n      - {default}:{target}"
             )
@@ -70,7 +74,7 @@ services:
         for label in template["labels"]:
             target = template["labels"][label]["Target"]
             default = template["labels"][label]["Default"]
-            description = template["labels"][label]["Description"]
+            description = template["labels"][label]["Description"].replace("\n", "\n      # ").replace("\r", "")
             docker_compose_yaml += (
                 f"\n      # {label} {description}\n      - {target}={default}"
             )
@@ -83,7 +87,7 @@ services:
         for device in template["devices"]:
             target = template["devices"][device]["Target"]
             default = template["devices"][device]["Default"]
-            description = template["devices"][device]["Description"]
+            description = template["devices"][device]["Description"].replace("\n", "\n      # ").replace("\r", "")
             docker_compose_yaml += (
                 f"\n      # {device} {description}\n      - {target}:{default}"
             )
