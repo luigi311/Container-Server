@@ -1,29 +1,106 @@
-import os, yaml, json, traceback, argparse
+import os, re, json, traceback, argparse
 
 from dotenv import load_dotenv
 from difflib import get_close_matches
 
-from src.utils import template_json_to_list, template_json_to_dict
-
 from src.unraid_templates import Unraid
 
 
-def create_app_docker_compose(folder: str, app_name: str, template: json):
-    docker_compose_config = {
-        "version": "3",
-        "services": {
-            app_name: {
-                "image": template["image"],
-                "network_mode": template["network_mode"],
-                "ports": template_json_to_list(template["ports"]) if template["ports"] else [],
-                "environment": template_json_to_dict(template["environment"]) if template["environment"] else {},
-                "volumes": template_json_to_list(template["volumes"]) if template["volumes"] else [],
-                "devices": template_json_to_list(template["devices"]) if template["devices"] else [],
-            }
-        },
-    }
+def generate_docker_yaml(app_name: str, template: json):
+    # Cleanup app_name and remove unsupported characters
+    app_name = re.sub(r"[^a-zA-Z0-9_-]", "", app_name).lower()
+    description = template['description'].replace("\n","\n# ").replace("\r","")
+    # Remove new lines of just # from description
+    description = re.sub(r"^#(\s+)?$", "", description, flags=re.MULTILINE)
+    # Remove empty lines from description
+    description = re.sub(r"^\s*$\n", "", description, flags=re.MULTILINE)
+    docker_compose_yaml = f"#{description}\n\n"
 
-    docker_compose_yaml = yaml.dump(docker_compose_config, sort_keys=False)
+    docker_compose_yaml += f"""version: '3'
+services:
+  {app_name}:
+    image: {template['image']}
+    container_name: {app_name}
+    restart: unless-stopped
+    network_mode: {template['network_mode']}
+"""
+    
+    if template.get("post_arguments"):
+        docker_compose_yaml += "    command: "
+        docker_compose_yaml += f'{template["post_arguments"]}'
+        docker_compose_yaml += "\n"
+
+    docker_compose_yaml += "    ports:"
+    if template.get("ports"):
+        for port in template["ports"]:
+            target = template["ports"][port]["Target"]
+            default = template["ports"][port]["Default"]
+            description = template["ports"][port]["Description"].replace("\n", "\n      # ").replace("\r", "")
+            docker_compose_yaml += (
+                f"\n      # {port} {description}\n      - {default}:{target}"
+            )
+        docker_compose_yaml += "\n"
+    else:
+        docker_compose_yaml += " []\n"
+
+    docker_compose_yaml += "    environment:"
+    if template.get("environment"):
+        for variable in template["environment"]:
+            target = template["environment"][variable]["Target"]
+            default = template["environment"][variable]["Default"]
+            description = template["environment"][variable]["Description"].replace("\n", "\n      # ").replace("\r", "")
+            docker_compose_yaml += (
+                f"\n      # {variable} {description}\n      - {target}={default}"
+            )
+        docker_compose_yaml += "\n"
+    else:
+        docker_compose_yaml += " []\n"
+
+    docker_compose_yaml += "    volumes:"
+    if template.get("volumes"):
+        for volume in template["volumes"]:
+            target = template["volumes"][volume]["Target"]
+            default = template["volumes"][volume]["Default"]
+            description = template["volumes"][volume]["Description"].replace("\n", "\n      # ").replace("\r", "")
+            docker_compose_yaml += (
+                f"\n      # {volume} {description}\n      - {default}:{target}"
+            )
+        docker_compose_yaml += "\n"
+    else:
+        docker_compose_yaml += " []\n"
+
+    docker_compose_yaml += "    labels:"
+    if template.get("labels"):
+        for label in template["labels"]:
+            target = template["labels"][label]["Target"]
+            default = template["labels"][label]["Default"]
+            description = template["labels"][label]["Description"].replace("\n", "\n      # ").replace("\r", "")
+            docker_compose_yaml += (
+                f"\n      # {label} {description}\n      - {target}={default}"
+            )
+        docker_compose_yaml += "\n"
+    else:
+        docker_compose_yaml += " []\n"
+
+    docker_compose_yaml += "    devices:"
+    if template.get("devices"):
+        for device in template["devices"]:
+            target = template["devices"][device]["Target"]
+            default = template["devices"][device]["Default"]
+            description = template["devices"][device]["Description"].replace("\n", "\n      # ").replace("\r", "")
+            docker_compose_yaml += (
+                f"\n      # {device} {description}\n      - {target}:{default}"
+            )
+        docker_compose_yaml += "\n"
+    else:
+        docker_compose_yaml += " []\n"
+
+    return docker_compose_yaml
+
+
+def create_app_docker_compose(folder: str, app_name: str, template: json):
+    docker_compose_yaml = generate_docker_yaml(app_name, template)
+
     if not os.path.exists(f"{folder}/{app_name}"):
         os.makedirs(f"{folder}/{app_name}", exist_ok=True)
 

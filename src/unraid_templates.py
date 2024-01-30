@@ -1,7 +1,4 @@
-import json, requests, os
-import git
-
-import xml.etree.ElementTree as ET
+import json, requests, os, git, xmltodict
 
 exclude_xmls = ["ca_profile.xml"]
 exclude_dirs = [".git", ".github", "issues", "depricated", ".history", ".idea"]
@@ -18,28 +15,89 @@ def get_repositoryList(repositoryList: str):
     return repositories
 
 
+def parse_new_config(variables: dict, name: str, user: str, config: dict):
+    config_type = config.get("@Type")
+    config_name = config.get("@Name")
+    if not config_name:
+        config_name = config.get("@Target")
+
+    if config_type == "Port":
+        variables[name][user]["ports"][config_name] = {
+            "Target": config.get("@Target"),
+            "Default": config.get("@Default"),
+            "Description": config.get("@Description"),
+        }
+    elif config_type == "Path":
+        variables[name][user]["volumes"][config_name] = {
+            "Target": config.get("@Target"),
+            "Default": config.get("@Default"),
+            "Description": config.get("@Description"),
+            "Mode": config.get("@Mode"),
+        }
+    elif config_type == "Variable":
+        variables[name][user]["environment"][config_name] = {
+            "Target": config.get("@Target"),
+            "Default": config.get("@Default"),
+            "Description": config.get("@Description"),
+        }
+    elif config_type == "Device":
+        variables[name][user]["devices"][config_name] = {
+            "Target": config.get("@Target"),
+            "Default": config.get("@Default"),
+            "Description": config.get("@Description"),
+        }
+    elif config_type == "Label":
+        variables[name][user]["labels"][config_name] = {
+            "Target": config.get("@Target"),
+            "Default": config.get("@Default"),
+            "Description": config.get("@Description"),
+        }
+    else:
+        print(f"Unknown config type {config.get('@Type')}")
+
+
 def parse_template(template: str, user: str, file_name: str):
     try:
         # Parse template and return variables
         variables = {}
-        root = ET.fromstring(template)
+        data_dict = xmltodict.parse(template)
+        app = (
+            data_dict["Container"]
+            if "Container" in data_dict
+            else data_dict["Containers"]
+        )
 
         # Get template name
-        name = root.findtext("Name")
+        name = app.get("Name")
+
         variables[name] = {}
         variables[name][user] = {}
 
         # Get template repository
-        variables[name][user]["image"] = root.findtext("Repository")
+        variables[name][user]["image"] = app.get("Repository")
 
-        if not variables[name][user]["image"]:
+        # If not name or image, skip
+        if not name or not variables[name][user]["image"]:
             return
 
         # Get template description
-        variables[name][user]["description"] = root.findtext("Overview")
+        variables[name][user]["description"] = app.get("Overview")
+
+        # Default network mode to bridge
+        variables[name][user]["network_mode"] = "bridge"
 
         # Get template network type
-        variables[name][user]["network_mode"] = root.findtext("Network")
+        if app.get("Network"):
+            variables[name][user]["network_mode"] = app.get("Network")
+        else:
+            networking = app.get("Networking")
+            if networking:
+                variables[name][user]["network_mode"] = networking.get("Mode")
+
+        # Extra Parameters
+        variables[name][user]["extra_parameters"] = app.get("ExtraParams")
+        # Post Arguments
+        variables[name][user]["post_arguments"] = app.get("PostArgs")
 
         variables[name][user]["ports"] = {}
         variables[name][user]["volumes"] = {}
@@ -47,41 +105,65 @@ def parse_template(template: str, user: str, file_name: str):
         variables[name][user]["labels"] = {}
         variables[name][user]["devices"] = {}
 
-        # Iterate though all the Config tags and create a dictionary of the Configs and their values using the Config's Name tag as the key
-        # with the value being a dictionary of the Config's attributes
-        for config in root.findall("Config"):
-            attrib_type = config.attrib["Type"].lower()
-            
-            if attrib_type not in ["variable", "port", "label", "path", "device"]:
-                print(f"Unknown attribute type {attrib_type} in {file_name}")
-                continue
-
-            if "Target" not in config.attrib:
-                print(f"Missing target attribute in {config.keys()}")
-                continue
-
-            if attrib_type == "port":
-                attrib_type = "ports"
-            elif attrib_type == "variable":
-                attrib_type = "environment"
-            elif attrib_type == "path":
-                attrib_type = "volumes"
-            elif attrib_type == "device":
-                attrib_type = "devices"
-            elif attrib_type == "label":
-                attrib_type = "labels"
-
-            target_attrib = config.attrib["Target"].strip()
-            variables[name][user][attrib_type][target_attrib] = {}
-            if config.attrib.get("Default"):
-                variables[name][user][attrib_type][target_attrib]["Default"] = config.attrib["Default"].strip()
+        # New template format
+        if app.get("Config"):
+            if isinstance(app["Config"], list):
+                for config in app["Config"]:
+                    parse_new_config(variables, name, user, config)
             else:
-                variables[name][user][attrib_type][target_attrib]["Default"] = ''
-            
-            if config.attrib.get("Description"):
-                variables[name][user][attrib_type][target_attrib]["Description"] = config.attrib["Description"].strip()
-            else:
-                variables[name][user][attrib_type][target_attrib]["Description"] = ''
+                parse_new_config(variables, name, user, app["Config"])
+
+        # Old Template format
+        else:
+            if app.get("Networking") and app["Networking"].get("Publish"):
+                if isinstance(app["Networking"]["Publish"]["Port"], list):
+                    for port in app["Networking"]["Publish"]["Port"]:
+                        variables[name][user]["ports"][port["ContainerPort"]] = {
+                            "Target": port["ContainerPort"],
+                            "Default": port.get("HostPort"),
+                            "Description": "",
+                        }
+                else:
+                    port = app["Networking"]["Publish"]["Port"]
+                    variables[name][user]["ports"][port["ContainerPort"]] = {
+                        "Target": port["ContainerPort"],
+                        "Default": port.get("HostPort"),
+                        "Description": "",
+                    }
+
+            if app.get("Data"):
+                if isinstance(app["Data"]["Volume"], list):
+                    for volume in app["Data"]["Volume"]:
+                        variables[name][user]["volumes"][volume["ContainerDir"]] = {
+                            "Target": volume["ContainerDir"],
+                            "Default": volume.get("HostDir"),
+                            "Description": "",
+                            "Mode": volume.get("Mode"),
+                        }
+                else:
+                    volume = app["Data"]["Volume"]
+                    variables[name][user]["volumes"][volume["ContainerDir"]] = {
+                        "Target": volume["ContainerDir"],
+                        "Default": volume.get("HostDir"),
+                        "Description": "",
+                        "Mode": volume.get("Mode"),
+                    }
+
+            if app.get("Environment"):
+                if isinstance(app["Environment"]["Variable"], list):
+                    for variable in app["Environment"]["Variable"]:
+                        variables[name][user]["environment"][variable["Name"]] = {
+                            "Target": variable["Name"],
+                            "Default": variable.get("Value"),
+                            "Description": "",
+                        }
+                else:
+                    variable = app["Environment"]["Variable"]
+                    variables[name][user]["environment"][variable["Name"]] = {
+                        "Target": variable["Name"],
+                        "Default": variable.get("Value"),
+                        "Description": "",
+                    }
 
         return variables
 
