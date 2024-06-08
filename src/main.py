@@ -30,6 +30,10 @@ def handle_app_author(app_directory, output_directory, args):
     if args.app:
         matched_apps = [app for app in structure if args.app.lower() == app.lower()]
         if matched_apps:
+            if len(matched_apps) > 1:
+                print(f"Multiple apps found for {args.app}. There should only be a single match.")
+                return
+
             app = matched_apps[0]
             if args.author:
                 matched_authors = [
@@ -38,6 +42,10 @@ def handle_app_author(app_directory, output_directory, args):
                     if args.author.lower() == author.lower()
                 ]
                 if matched_authors:
+                    if len(matched_authors) > 1:
+                        print(f"Multiple authors found for {app} matching {args.author}. There should only be a single match.")
+                        return
+
                     author = matched_authors[0]
                     print(f"Creating {app} with author {author}")
                     output_app_dir = os.path.join(output_directory, app)

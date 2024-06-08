@@ -3,6 +3,7 @@
 repos
 **.xml
 **.yml
+**.old
 Unraid_Repositories
 
 
