@@ -1,336 +1,158 @@
-import os, re, json, traceback, argparse
-
-from dotenv import load_dotenv
+import os
+import json
+import traceback
+import argparse
+import requests
+import zipfile
+import shutil
 from difflib import get_close_matches
+from dotenv import load_dotenv
 
-from src.unraid_templates import Unraid
+# Load environment variables from a .env file
+load_dotenv(override=True)
 
+# Set default values for directories from environment variables or use provided defaults
+DOCKER_COMPOSE_FOLDER = os.getenv("DOCKER_COMPOSE_FOLDER", ".")
+TEMPLATES_FOLDER = os.getenv("TEMPLATES_FOLDER", "Docker_Compose")
 
-def generate_docker_yaml(app_name: str, template: json):
-    # Cleanup app_name and remove unsupported characters
-    app_name = re.sub(r"[^a-zA-Z0-9_-]", "", app_name).lower()
-    description = template['description'].replace("\n","\n# ").replace("\r","")
-    # Remove new lines of just # from description
-    description = re.sub(r"^#(\s+)?$", "", description, flags=re.MULTILINE)
-    # Remove empty lines from description
-    description = re.sub(r"^\s*$\n", "", description, flags=re.MULTILINE)
-    docker_compose_yaml = f"#{description}\n\n"
+# Function to load the application structure from a JSON file
+def load_app_structure(directory):
+    with open(os.path.join(directory, "app_list.json"), "r") as f:
+        data = json.load(f)
+    return data["apps"], data["authors"], data["folder_structure"]
 
-    docker_compose_yaml += f"""version: '3'
-services:
-  {app_name}:
-    image: {template['image']}
-    container_name: {app_name}
-    restart: unless-stopped
-    network_mode: {template['network_mode']}
-"""
-    
-    if template.get("post_arguments"):
-        docker_compose_yaml += "    command: "
-        docker_compose_yaml += f'{template["post_arguments"]}'
-        docker_compose_yaml += "\n"
-
-    docker_compose_yaml += "    ports:"
-    if template.get("ports"):
-        for port in template["ports"]:
-            target = template["ports"][port]["Target"]
-            default = template["ports"][port]["Default"]
-            description = template["ports"][port]["Description"].replace("\n", "\n      # ").replace("\r", "")
-            docker_compose_yaml += (
-                f"\n      # {port} {description}\n      - {default}:{target}"
-            )
-        docker_compose_yaml += "\n"
-    else:
-        docker_compose_yaml += " []\n"
-
-    docker_compose_yaml += "    environment:"
-    if template.get("environment"):
-        for variable in template["environment"]:
-            target = template["environment"][variable]["Target"]
-            default = template["environment"][variable]["Default"]
-            description = template["environment"][variable]["Description"].replace("\n", "\n      # ").replace("\r", "")
-            docker_compose_yaml += (
-                f"\n      # {variable} {description}\n      - {target}={default}"
-            )
-        docker_compose_yaml += "\n"
-    else:
-        docker_compose_yaml += " []\n"
-
-    docker_compose_yaml += "    volumes:"
-    if template.get("volumes"):
-        for volume in template["volumes"]:
-            target = template["volumes"][volume]["Target"]
-            default = template["volumes"][volume]["Default"]
-            description = template["volumes"][volume]["Description"].replace("\n", "\n      # ").replace("\r", "")
-            docker_compose_yaml += (
-                f"\n      # {volume} {description}\n      - {default}:{target}"
-            )
-        docker_compose_yaml += "\n"
-    else:
-        docker_compose_yaml += " []\n"
-
-    docker_compose_yaml += "    labels:"
-    if template.get("labels"):
-        for label in template["labels"]:
-            target = template["labels"][label]["Target"]
-            default = template["labels"][label]["Default"]
-            description = template["labels"][label]["Description"].replace("\n", "\n      # ").replace("\r", "")
-            docker_compose_yaml += (
-                f"\n      # {label} {description}\n      - {target}={default}"
-            )
-        docker_compose_yaml += "\n"
-    else:
-        docker_compose_yaml += " []\n"
-
-    docker_compose_yaml += "    devices:"
-    if template.get("devices"):
-        for device in template["devices"]:
-            target = template["devices"][device]["Target"]
-            default = template["devices"][device]["Default"]
-            description = template["devices"][device]["Description"].replace("\n", "\n      # ").replace("\r", "")
-            docker_compose_yaml += (
-                f"\n      # {device} {description}\n      - {target}:{default}"
-            )
-        docker_compose_yaml += "\n"
-    else:
-        docker_compose_yaml += " []\n"
-
-    return docker_compose_yaml
-
-
-def create_app_docker_compose(folder: str, app_name: str, template: json):
-    docker_compose_yaml = generate_docker_yaml(app_name, template)
-
-    if not os.path.exists(f"{folder}/{app_name}"):
-        os.makedirs(f"{folder}/{app_name}", exist_ok=True)
-
-    docker_file_path = f"{folder}/{app_name}/docker-compose.yml"
-    if os.path.exists(docker_file_path):
-        print(f"docker-compose.yml file already exists at {docker_file_path}")
-        print("Moving current file to docker-compose.yml.old")
-
-        if os.path.exists(f"{docker_file_path}.old"):
-            os.remove(f"{docker_file_path}.old")
-
-        os.rename(docker_file_path, f"{docker_file_path}.old")
-
-    with open(docker_file_path, "w") as f:
-        f.write(docker_compose_yaml)
-
-    print(f"Created {docker_file_path}")
-
-
-def create_app_args(templates: json, args):
+# Function to handle app and author specific operations
+def handle_app_author(app_directory, output_directory, args):
+    apps, authors, structure = load_app_structure(app_directory)
     app_authors = []
-    apps, authors = generate_apps_authors(templates)
 
-    if args.app and args.author:
-        found = False
-        for app in templates.keys():
-            if args.app.lower() == app.lower():
-                for author in templates[app]:
-                    app_authors.append(author)
-                    if args.author.lower() == author.lower():
-                        found = True
-                        print(f"Creating {app} with author {author}")
-                        create_app_docker_compose(
-                            folder=os.getenv("DOCKER_COMPOSE_FOLDER", "."),
-                            app_name=app,
-                            template=templates[app][author],
-                        )
+    if args.app:
+        matched_apps = [app for app in structure if args.app.lower() == app.lower()]
+        if matched_apps:
+            if len(matched_apps) > 1:
+                print(f"Multiple apps found for {args.app}. There should only be a single match.")
+                return
 
-        if not found:
-            if app_authors:
-                print(f"Author {args.author} not found for app {args.app}")
-                print(f"Did you mean one of the following authors?")
-                close_matches = get_close_matches(args.author, app_authors, cutoff=0.5)
-                if close_matches:
-                    for match in close_matches:
-                        print(f"  {match}")
+            app = matched_apps[0]
+            if args.author:
+                matched_authors = [
+                    author
+                    for author in structure[app]
+                    if args.author.lower() == author.lower()
+                ]
+                if matched_authors:
+                    if len(matched_authors) > 1:
+                        print(f"Multiple authors found for {app} matching {args.author}. There should only be a single match.")
+                        return
+
+                    author = matched_authors[0]
+                    print(f"Creating {app} with author {author}")
+                    output_app_dir = os.path.join(output_directory, app)
+                    source_file = os.path.join(app_directory, app, author, "docker-compose.yml")
+                    target_file = os.path.join(output_app_dir, "docker-compose.yml")
+
+                    # Create the application directory if it doesn't exist
+                    os.makedirs(output_app_dir, exist_ok=True)
+                    
+                    # Rename the existing docker-compose.yml file if it exists
+                    if os.path.exists(target_file):
+                        os.rename(target_file, f"{target_file}.old")
+                    
+                    # Copy the template docker-compose.yml file to the target location
+                    shutil.copyfile(source_file, target_file)
                 else:
-                    for author in app_authors:
-                        print(f"  {author}")
+                    app_authors = structure[app]
+                    print(f"Author {args.author} not found for app {args.app}")
+                    suggest_matches(args.author, app_authors, "authors")
             else:
-                print(f"App name {args.app} not found in templates")
-                print(f"Did you mean one of the following apps?")
-                print(get_close_matches(args.app, apps, cutoff=0.5))
-
-    elif args.app and not args.author:
-        for app in templates.keys():
-            if args.app.lower() == app.lower():
-                for author in templates[app]:
-                    app_authors.append(author)
-
-        if app_authors:
-            print(f"App name {args.app} has the following authors:")
-            for author in app_authors:
-                print(f"  {author}")
-            print("Specify an author with --author")
+                app_authors = structure[app]
+                print(f"App name {args.app} has the following authors:")
+                print_list(app_authors)
+                print("Specify an author with --author")
         else:
-            print(f"App name {args.app} not found in templates")
-            print(f"Did you mean one of the following apps?")
-            print(get_close_matches(args.app, apps, cutoff=0.5))
+            suggest_matches(args.app, apps, "apps")
 
-    elif not args.app and args.author:
-        author_apps = []
-
-        for app in templates:
-            for author in templates[app]:
-                if args.author.lower() == author.lower():
-                    author_apps.append(app)
-
+    elif args.author:
+        author_apps = [
+            app
+            for app, authors in structure.items()
+            if args.author.lower() in map(str.lower, authors)
+        ]
         if author_apps:
             print(f"Author {args.author} has the following apps:")
-            for app in author_apps:
-                print(f"  {app}")
+            print_list(author_apps)
             print("Specify an app name with --app")
         else:
-            print(f"Author {args.author} not found in templates")
-            print(f"Did you mean one of the following authors?")
-            print(get_close_matches(args.author, authors, cutoff=0.5))
+            suggest_matches(args.author, authors, "authors")
 
+# Function to suggest matches for a given query
+def suggest_matches(query, items, item_type):
+    matches = get_close_matches(query, items, cutoff=0.5)
+    if matches:
+        print(f"Did you mean one of the following {item_type}?")
+        print_list(matches)
+    else:
+        print(f"No close matches found for {query} in {item_type}.")
 
-def load_templates(folder: str):
-    templates = {}
+# Function to print a list of items
+def print_list(items):
+    for item in items:
+        print(f"  {item}")
 
-    # Load folder/templates.json
-    if os.path.exists(f"{folder}/templates.json"):
-        with open(f"{folder}/templates.json", "r") as f:
-            templates = json.load(f)
+# Function to update the compose files by downloading the latest release and extracting it
+def update_compose(directory):
+    url = "https://github.com/luigi311/Container-Server-Templates/releases/download/latest/Docker_Compose.zip"
+    response = requests.get(url)
+    response.raise_for_status()
 
-    return templates
+    zip_path = "Docker_Compose.zip"
+    with open(zip_path, "wb") as f:
+        f.write(response.content)
 
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(directory)
 
-def save_templates(folder: str, templates: dict):
-    if not os.path.exists(folder):
-        os.makedirs(folder, exist_ok=True)
+    os.remove(zip_path)
 
-    # Save templates to templates.json
-    with open(f"{folder}/templates.json", "w") as f:
-        json.dump(templates, f, indent=4, sort_keys=True)
-
-
-def update_templates():
-    # Get Unraid templates
-    unraid = Unraid(
-        repo_folder=os.getenv("UNRAID_REPO_FOLDER", "./Unraid_Repositories"),
-        repositoryList=os.getenv(
-            "UNRAID_REPOSITORY_LIST",
-            "https://raw.githubusercontent.com/Squidly271/AppFeed/master/repositoryList.json",
-        ),
-        repositories=os.getenv("UNRAID_REPOSITORIES", None),
-    )
-
-    unraid.update_repos()
-    unraid.update_templates()
-
-    templates = unraid.templates
-
-    save_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."), templates)
-
-    return templates
-
-
-def generate_apps_authors(templates: json):
-    apps = []
-    authors = []
-
-    for app in templates.keys():
-        apps.append(app)
-        for author in templates[app].keys():
-            authors.append(author)
-
-    # Remove duplicates
-    apps = list(dict.fromkeys(apps))
-    authors = list(dict.fromkeys(authors))
-
-    return apps, authors
-
-
-def update_containers(container_system: str, directory: str):
-    from python_on_whales import DockerClient
-
-    for folder in os.listdir(directory):
-        if os.path.isdir(f"{directory}/{folder}"):
-            if folder not in ["Unraid_Repositories", ".git", ".github", "src", ".venv"]:
-                compose_file = f"{directory}/{folder}/docker-compose.yml"
-                print(f"Updating {folder}")
-                if os.path.exists(compose_file):
-                    if container_system == "docker":
-                        client = DockerClient(compose_files=[compose_file])
-                        client.compose.pull()
-                        client.compose.up(
-                            detach=True,
-                            remove_orphans=True,
-                        )
-                    else:
-                        raise Exception("Invalid container system")
-
-
+# Function to parse command-line arguments
 def arg_parser():
     parser = argparse.ArgumentParser(
-        description="Create docker-compose.yml files from community templates"
-    )
-    parser.add_argument(
-        "--update_templates",
-        action="store_true",
-        help="Update templates from repositoryList and repositories",
+        description="Create docker-compose.yml files from community docker compose files"
     )
     parser.add_argument("--app", help="App name to create docker-compose.yml file for")
     parser.add_argument("--list", action="store_true", help="List apps")
     parser.add_argument("--author", help="Author of the template")
-    parser.add_argument(
-        "--update_containers", action="store_true", help="Update containers"
-    )
-    parser.add_argument(
-        "--container_system",
-        help="Container system to use",
-        default="docker",
-        choices=["docker"],
-    )
-    args = parser.parse_args()
+    parser.add_argument("--update_compose", action="store_true", help="Update compose files")
+    
+    return parser.parse_args()
 
-    return args
-
-
+# Main function to handle the script execution
 def main():
     try:
-        load_dotenv(override=True)
-
         args = arg_parser()
 
-        templates = load_templates(os.getenv("DOCKER_COMPOSE_FOLDER", "."))
-        updated = False
-        if not templates:
-            updated = True
-            templates = update_templates()
+        # Update the compose files if the folder does not exist or if the update_compose flag is specified
+        if not os.path.exists(TEMPLATES_FOLDER) or args.update_compose:
+            update_compose(TEMPLATES_FOLDER)
 
-        if args.update_templates:
-            # Do not update templates if they were just updated
-            if not updated:
-                templates = update_templates()
-
+        # Update containers if the update_containers flag is specified
         if args.update_containers:
-            update_containers(
-                args.container_system, os.getenv("DOCKER_COMPOSE_FOLDER", ".")
-            )
+            update_containers(args.container_system, DOCKER_COMPOSE_FOLDER)
 
+        # Handle app and author arguments
         if args.app or args.author:
-            create_app_args(templates, args)
+            handle_app_author(TEMPLATES_FOLDER, DOCKER_COMPOSE_FOLDER, args)
         elif args.list:
+            apps, _, _ = load_app_structure(TEMPLATES_FOLDER)
             print("List of apps:")
-            for app in templates.keys():
-                print(f"  {app}")
+            print_list(apps)
 
     except Exception as error:
-        if isinstance(error, list):
-            for message in error:
-                print(message)
-        else:
-            print(error)
-
+        print(f"Error: {error}")
         print(traceback.format_exc())
-
     except KeyboardInterrupt:
         print("Exiting...")
         os._exit(0)
+
+if __name__ == "__main__":
+    main()
