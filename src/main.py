@@ -7,7 +7,6 @@ import zipfile
 import shutil
 from difflib import get_close_matches
 from dotenv import load_dotenv
-from python_on_whales import DockerClient
 
 # Load environment variables from a .env file
 load_dotenv(override=True)
@@ -100,21 +99,6 @@ def print_list(items):
     for item in items:
         print(f"  {item}")
 
-# Function to update docker containers
-def update_containers(container_system, directory):
-    for folder in os.listdir(directory):
-        if os.path.isdir(os.path.join(directory, folder)):
-            if folder not in ["Unraid_Repositories", ".git", ".github", "src", ".venv"]:
-                compose_file = os.path.join(directory, folder, "docker-compose.yml")
-                if os.path.exists(compose_file):
-                    print(f"Updating {folder}")
-                    if container_system == "docker":
-                        client = DockerClient(compose_files=[compose_file])
-                        client.compose.pull()
-                        client.compose.up(detach=True, remove_orphans=True)
-                    else:
-                        raise Exception("Invalid container system")
-
 # Function to update the compose files by downloading the latest release and extracting it
 def update_compose(directory):
     url = "https://github.com/luigi311/Container-Server-Templates/releases/download/latest/Docker_Compose.zip"
@@ -139,10 +123,7 @@ def arg_parser():
     parser.add_argument("--list", action="store_true", help="List apps")
     parser.add_argument("--author", help="Author of the template")
     parser.add_argument("--update_compose", action="store_true", help="Update compose files")
-    parser.add_argument("--update_containers", action="store_true", help="Update containers")
-    parser.add_argument(
-        "--container_system", help="Container system to use", default="docker", choices=["docker"]
-    )
+    
     return parser.parse_args()
 
 # Main function to handle the script execution
