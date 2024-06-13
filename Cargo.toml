@@ -13,6 +13,12 @@ thiserror = "1"
 reqwest = { version = "0.12", features = ["blocking"] }
 zip = "2"
 strsim = "0.11"
+
 clap = { version = "4.5", features = ["derive"] }
 clap_derive = "4.5"
 dotenvy = "0.15"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
