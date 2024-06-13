@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use strsim::jaro_winkler;
 use std::cmp::Ordering;
 
+use dotenvy::dotenv;
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -191,8 +193,15 @@ fn handle_app_author(app: Option<String>, author: Option<String>, data: &Data, d
 
 fn main() -> Result<()> {
     let args: Args = Args::parse();
-    let docker_compose: String = "Docker_Compose".to_owned();
+
+    // load environment variables from .env file
+    dotenv()
+        .ok();
+
     
+    let docker_compose: String = std::env::var("TEMPLATES_FOLDER").unwrap();
+    let output_directory: String = std::env::var("DOCKER_COMPOSE_FOLDER").unwrap();
+
     if !Path::new(&docker_compose).exists() || args.update {
         if Path::new(&docker_compose).exists() {
             println!("Removing existing Docker Compose folder");
@@ -224,7 +233,7 @@ fn main() -> Result<()> {
         }
     }
 
-    handle_app_author(args.app, args.author, &data, &docker_compose, "output")?;
+    handle_app_author(args.app, args.author, &data, &docker_compose, output_directory.as_str())?;
 
     Ok(())
 }
