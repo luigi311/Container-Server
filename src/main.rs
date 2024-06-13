@@ -3,13 +3,13 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use zip::read::{ZipArchive, ZipFile};
 
-use std::collections::{HashMap, BinaryHeap};
-use std::fs::{File, create_dir_all, remove_dir_all, remove_file};
+use std::collections::{BinaryHeap, HashMap};
+use std::fs::{create_dir_all, remove_dir_all, remove_file, File};
 use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 
-use strsim::jaro_winkler;
 use std::cmp::Ordering;
+use strsim::jaro_winkler;
 
 use dotenvy::dotenv;
 
@@ -19,7 +19,7 @@ struct Args {
     /// Specify the app name
     #[arg(long)]
     app: Option<String>,
-    
+
     /// Specify the author name
     #[arg(long)]
     author: Option<String>,
@@ -112,11 +112,17 @@ fn get_close_matches(word: &str, possibilities: &[String], cutoff: f64) -> Vec<S
     for possibility in possibilities {
         let score: f64 = jaro_winkler(word, possibility);
         if score >= cutoff {
-            heap.push(ScoredStr { score, string: possibility.clone() });
+            heap.push(ScoredStr {
+                score,
+                string: possibility.clone(),
+            });
         }
     }
 
-    heap.into_sorted_vec().into_iter().map(|scored| scored.string).collect()
+    heap.into_sorted_vec()
+        .into_iter()
+        .map(|scored| scored.string)
+        .collect()
 }
 
 fn get_match(query: &str, items: &[String], item_type: &str) -> Option<String> {
@@ -134,7 +140,10 @@ fn get_match(query: &str, items: &[String], item_type: &str) -> Option<String> {
             return Some(matches[0].clone());
         }
         _ => {
-            println!("No exact match found for {}. Did you mean one of the following?", query);
+            println!(
+                "No exact match found for {}. Did you mean one of the following?",
+                query
+            );
             for match_ in matches {
                 println!("{}", match_);
             }
@@ -144,8 +153,14 @@ fn get_match(query: &str, items: &[String], item_type: &str) -> Option<String> {
     None
 }
 
-fn copy_docker_compose_file(app: &str, author: &str, directory: &str, out_directory: &str) -> Result<()> {
-    let docker_compose_file: String = format!("{}/{}/{}/docker-compose.yml", directory, app, author);
+fn copy_docker_compose_file(
+    app: &str,
+    author: &str,
+    directory: &str,
+    out_directory: &str,
+) -> Result<()> {
+    let docker_compose_file: String =
+        format!("{}/{}/{}/docker-compose.yml", directory, app, author);
     let out_docker_compose_file: String = format!("{}/{}/docker-compose.yml", out_directory, app);
 
     if Path::new(&docker_compose_file).exists() {
@@ -153,20 +168,34 @@ fn copy_docker_compose_file(app: &str, author: &str, directory: &str, out_direct
         std::fs::copy(&docker_compose_file, &out_docker_compose_file)?;
         println!("Copied Docker Compose file to {}", out_docker_compose_file);
     } else {
-        println!("Docker Compose file does not exist for {} by {}", app, author);
+        println!(
+            "Docker Compose file does not exist for {} by {}",
+            app, author
+        );
     }
 
     Ok(())
 }
 
-fn handle_app_author(app: Option<String>, author: Option<String>, data: &Data, directory: &str, out_directory: &str) -> Result<()> {
+fn handle_app_author(
+    app: Option<String>,
+    author: Option<String>,
+    data: &Data,
+    directory: &str,
+    out_directory: &str,
+) -> Result<()> {
     if let Some(app) = app {
         if let Some(app_matched) = get_match(&app, &data.apps, "app") {
             let app_authors: &Vec<String> = data.folder_structure.get(&app_matched).unwrap();
 
             if let Some(author) = author {
                 if let Some(author_matched) = get_match(&author, app_authors, "author") {
-                    copy_docker_compose_file(&app_matched, &author_matched, directory, out_directory)?;
+                    copy_docker_compose_file(
+                        &app_matched,
+                        &author_matched,
+                        directory,
+                        out_directory,
+                    )?;
                 }
             } else {
                 println!("Authors for {}: ", app_matched);
@@ -177,8 +206,16 @@ fn handle_app_author(app: Option<String>, author: Option<String>, data: &Data, d
         }
     } else if let Some(author) = author {
         if let Some(author_matched) = get_match(&author, &data.authors, "author") {
-            let author_apps: Vec<String> = data.folder_structure.iter()
-                .filter_map(|(app, authors)| if authors.contains(&author_matched) { Some(app.clone()) } else { None })
+            let author_apps: Vec<String> = data
+                .folder_structure
+                .iter()
+                .filter_map(|(app, authors)| {
+                    if authors.contains(&author_matched) {
+                        Some(app.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
 
             println!("Apps by {}: ", author_matched);
@@ -195,11 +232,12 @@ fn main() -> Result<()> {
     let args: Args = Args::parse();
 
     // load environment variables from .env file
-    dotenv()
-        .ok();
+    dotenv().ok();
 
-    let docker_compose: String = std::env::var("TEMPLATES_FOLDER").unwrap_or("Docker_Compose".to_string());
-    let output_directory: String = std::env::var("DOCKER_COMPOSE_FOLDER").unwrap_or(".".to_string());
+    let docker_compose: String =
+        std::env::var("TEMPLATES_FOLDER").unwrap_or("Docker_Compose".to_string());
+    let output_directory: String =
+        std::env::var("DOCKER_COMPOSE_FOLDER").unwrap_or(".".to_string());
 
     if !Path::new(&docker_compose).exists() || args.update {
         if Path::new(&docker_compose).exists() {
@@ -232,7 +270,13 @@ fn main() -> Result<()> {
         }
     }
 
-    handle_app_author(args.app, args.author, &data, &docker_compose, output_directory.as_str())?;
+    handle_app_author(
+        args.app,
+        args.author,
+        &data,
+        &docker_compose,
+        output_directory.as_str(),
+    )?;
 
     Ok(())
 }
