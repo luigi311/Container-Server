@@ -198,9 +198,8 @@ fn main() -> Result<()> {
     dotenv()
         .ok();
 
-    
-    let docker_compose: String = std::env::var("TEMPLATES_FOLDER").unwrap();
-    let output_directory: String = std::env::var("DOCKER_COMPOSE_FOLDER").unwrap();
+    let docker_compose: String = std::env::var("TEMPLATES_FOLDER").unwrap_or("Docker_Compose".to_string());
+    let output_directory: String = std::env::var("DOCKER_COMPOSE_FOLDER").unwrap_or(".".to_string());
 
     if !Path::new(&docker_compose).exists() || args.update {
         if Path::new(&docker_compose).exists() {
